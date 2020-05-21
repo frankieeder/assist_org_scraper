@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 import time
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import StaleElementReferenceException
 
 options = webdriver.ChromeOptions()
 options.add_experimental_option('prefs', {
@@ -20,79 +21,97 @@ options.add_experimental_option('prefs', {
 driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
 UNVERIFIED_CONTEXT = ssl._create_unverified_context()
 
-def wait_for(condition_function):
-  start_time = time.time()
-  while time.time() < start_time + 3:
-    if condition_function():
-      return True
-    else:
-      time.sleep(0.1)
-  raise Exception(
-   'Timeout waiting for {}'.format(condition_function.__name__)
-  )
-
-class wait_for_page_load(object):
-  def __init__(self, browser):
-    self.browser = browser
-  def __enter__(self):
-    self.old_page = self.browser.find_element_by_tag_name('html')
-  def page_has_loaded(self):
-    new_page = self.browser.find_element_by_tag_name('html')
-    return new_page.id != self.old_page.id
-  def __exit__(self, *_):
-    wait_for(self.page_has_loaded)
-
-
 def downloadPDF(url):
     driver.get(url)
     pdf_url = driver.find_element_by_tag_name('iframe').get_attribute("src")
     driver.get(pdf_url)
 
-def extractArticulationAgreement(url):
-    driver = webdriver.Safari()
-    driver.get(url)
-    driver.implicitly_wait(3)
-    pdfurl = driver.find_element_by_xpath("//div[@class='blob-url']/iframe").get_property('src')
-    pdf = requests.get(pdfurl)
-    #urllib.request.urlretrieve(url, "temp.pdf")#, context=UNVERIFIED_CONTEXT)
-    #pdf = urllib.request.urlopen(url, context=UNVERIFIED_CONTEXT)
-    raw = parser.from_buffer(pdf)
-    lines = raw['content'].splitlines()
-    lines = [l for l in lines if l]
-    courses =[l for l in lines if '←' in l]
-    school_to = [l for l in lines if 'To: ' in l][-1]
-    school_to_year = lines[lines.index(school_to)+1][:9]
-    school_to = school_to[4:]
-    school_from = [l for l in lines if 'From: ' in l][-1]
-    school_from_year = lines[lines.index(school_from)+1][:9]
-    school_from = school_from[6:]
-    subject = lines[lines.index("END OF AGREEMENT")-1]
-    df = pd.DataFrame({
-        'SchoolTo': school_to,
-        'SchoolToYear': school_to_year,
-        'SchoolFrom': school_from,
-        'SchoolFromYear': school_from_year,
-        'Subject': subject,
-        'Course': courses,
-    })
-    df[['CourseTo', 'CourseFrom']] = df['Course'].str.split(' ← ', expand=True)
-    df['CourseToSubject'] = df['CourseTo'].str.extract(r'^(\w+)')
-    df['CourseFromSubject'] = df['CourseFrom'].str.extract(r'^(\w+)')
-    df['CourseToNumber'] = df['CourseTo'].str.extract(r'\s(\d+\w*)\s-')
-    df['CourseFromNumber'] = df['CourseFrom'].str.extract(r'\s(\d+\w*)\s-')
-    df['CourseToName'] = df['CourseTo'].str.extract(r'-\s(.*)\s\(')
-    df['CourseFromName'] = df['CourseFrom'].str.extract(r'-\s(.*)\s\(')
-    df['CourseToUnits'] = df['CourseTo'].str.extract(r'\((.*)\)').astype(float)
-    df['CourseFromUnits'] = df['CourseFrom'].str.extract(r'\((.*)\)').astype(float)
+def getForm(form_title):
+    form = driver.find_element_by_xpath(f"//*[@formcontrolname='{form_title}']")
+    return form
 
-    df = df.drop(columns=['Course', 'CourseTo', 'CourseFrom'])
+def getOptions(form):
+    form.click()
+    options = form.find_elements_by_xpath("//*[contains(@role, 'option')]")
+    return options
 
-    df.to_csv(f'./data/{subject}__{school_from}_to_{school_to}_{school_from_year}.csv')
-    return df
+def filterOptions(opts, patterns):
+    return [o for o in opts if any(p in o.text for p in patterns)]
 
-if not osp.isdir('./data/'):
-    os.mkdir('./data/')
+def refreshFormOptions(form_title, option_filter):
+    form = getForm(form_title)
+    opts = getOptions(form)
+    opts = filterOptions(opts, option_filter)
+    form.click()
+    return form, opts
 
-downloadPDF('https://assist.org/transfer/report/23021054')
-extractArticulationAgreement('https://assist.org/transfer/report/23021054')
+def findPDFs(
+        academic_year=['2019-2020'],
+        from_school=[''],
+        to_school=['Berkeley'],
+        department=['Physics']
+):
+    driver.get('http://assist.org')
+    driver.implicitly_wait(5)
+
+    # Set Academic Year
+    academic_year_form = getForm('academicYear')
+    academic_years = getOptions(academic_year_form)
+    academic_years = filterOptions(academic_years, academic_year)
+    for year in academic_years:
+        try:
+            academic_year_form.click()
+        except StaleElementReferenceException:
+            academic_year_form = getForm('academicYear')
+            academic_year_form.click()
+        year.click()  # Most Recent Academic Year
+        driver.implicitly_wait(0.5)
+
+        # Get From Schools
+        from_school_form = getForm('fromInstitution')
+        from_schools = getOptions(from_school_form)
+        from_schools = filterOptions(from_schools, from_school)
+        for school in from_schools:
+            try:
+                from_school_form.click()
+            except StaleElementReferenceException:
+                from_school_form = getForm('fromInstitution')
+                from_school_form.click()
+            school.click()
+            driver.implicitly_wait(0.5)
+
+            # Set To School
+            agreement_form = getForm('agreement')
+            agreements = getOptions(agreement_form)
+            agreements = filterOptions(agreements, to_school)
+            for agreement in agreements:
+                try:
+                    agreement_form.click()
+                except StaleElementReferenceException:
+                    agreement_form = getForm('agreement')
+                    agreement_form.click()
+                agreement.click()
+                driver.implicitly_wait(0.5)
+
+                # View Agreements
+                viewAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'View Agreements')]")
+                viewAgreementsButton.click()
+                driver.implicitly_wait(0.5)
+
+                # Get Departments
+                departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
+                departments = filterOptions(departments, department)
+                for d in departments:
+                    d.click()
+                    driver.implicitly_wait(0.5)
+
+                    dlAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'Download Agreement')]")
+                    dlAgreementsButton.click()
+                    driver.implicitly_wait(0.5)
+
+if not osp.isdir('./pdfs/'):
+    os.mkdir('./pdfs/')
+
+findPDFs()
+
 x=2
