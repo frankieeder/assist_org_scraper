@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 import time
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
 
 options = webdriver.ChromeOptions()
@@ -36,78 +38,76 @@ def getOptions(form):
     return options
 
 def filterOptions(opts, patterns):
-    return [o for o in opts if any(p in o.text for p in patterns)]
+    filtered = []
+    for o in opts:
+        for p in patterns:
+            if p in o.text:
+                filtered.append(o)
+                break
+    return filtered
 
-def refreshFormOptions(form_title, option_filter):
+def getFormOptions(form_title, option_filter):
     form = getForm(form_title)
     opts = getOptions(form)
-    opts = filterOptions(opts, option_filter)
-    form.click()
-    return form, opts
+    try:
+        opts = filterOptions(opts, option_filter)
+    except StaleElementReferenceException:
+        opts = getOptions(form)
+        opts = filterOptions(opts, option_filter)
+    return opts
 
 def findPDFs(
         academic_year=['2019-2020'],
         from_school=[''],
-        to_school=['Berkeley'],
+        to_school=['To: University of California, Berkeley'],
         department=['Physics']
 ):
     driver.get('http://assist.org')
     driver.implicitly_wait(5)
 
     # Set Academic Year
-    academic_year_form = getForm('academicYear')
-    academic_years = getOptions(academic_year_form)
-    academic_years = filterOptions(academic_years, academic_year)
-    for year in academic_years:
-        try:
-            academic_year_form.click()
-        except StaleElementReferenceException:
-            academic_year_form = getForm('academicYear')
-            academic_year_form.click()
-        year.click()  # Most Recent Academic Year
-        driver.implicitly_wait(0.5)
+    academic_years = getFormOptions('academicYear', academic_year)
+    for y in range(len(academic_years)):
+        academic_years = getFormOptions('academicYear', academic_year)
+        year = academic_years[y]
+        year.click()
+        #driver.implicitly_wait(0.5)
 
         # Get From Schools
-        from_school_form = getForm('fromInstitution')
-        from_schools = getOptions(from_school_form)
-        from_schools = filterOptions(from_schools, from_school)
-        for school in from_schools:
-            try:
-                from_school_form.click()
-            except StaleElementReferenceException:
-                from_school_form = getForm('fromInstitution')
-                from_school_form.click()
+        from_schools = getFormOptions('fromInstitution', from_school)
+        for s in range(140, len(from_schools)):
+            from_schools = getFormOptions('fromInstitution', from_school)
+            school = from_schools[s]
             school.click()
-            driver.implicitly_wait(0.5)
+            #driver.implicitly_wait(10)
 
             # Set To School
-            agreement_form = getForm('agreement')
-            agreements = getOptions(agreement_form)
-            agreements = filterOptions(agreements, to_school)
-            for agreement in agreements:
-                try:
-                    agreement_form.click()
-                except StaleElementReferenceException:
-                    agreement_form = getForm('agreement')
-                    agreement_form.click()
+            agreements = getFormOptions('agreement', to_school)
+            for a in range(len(agreements)):
+                agreements = getFormOptions('agreement', to_school)
+                agreement = agreements[a]
                 agreement.click()
-                driver.implicitly_wait(0.5)
+                #driver.implicitly_wait(0.5)
 
                 # View Agreements
                 viewAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'View Agreements')]")
                 viewAgreementsButton.click()
-                driver.implicitly_wait(0.5)
+                #driver.implicitly_wait(10)
 
                 # Get Departments
                 departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
-                departments = filterOptions(departments, department)
+                try:
+                    departments = filterOptions(departments, department)
+                except StaleElementReferenceException:
+                    departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
+                    departments = filterOptions(departments, department)
                 for d in departments:
                     d.click()
-                    driver.implicitly_wait(0.5)
+                    #driver.implicitly_wait(0.5)
 
                     dlAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'Download Agreement')]")
                     dlAgreementsButton.click()
-                    driver.implicitly_wait(0.5)
+                    #driver.implicitly_wait(0.5)
 
 if not osp.isdir('./pdfs/'):
     os.mkdir('./pdfs/')
