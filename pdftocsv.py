@@ -100,10 +100,26 @@ def aggregator(lst, delim):
 def extractCourseInfo(course_title):
     if not course_title or course_title in removal_kwds:
         return ['', '', '', '']
-    department = re.search(r'^(\w+)[\s-]{1,2}[\d\w]+.*\s-', course_title)[1]
-    number = re.search(r'[\s-]{1,2}([\d\w]+.*)\s-', course_title)[1]
-    name = re.search(r'-\s(.*)\s\(', course_title)[1]
-    units = re.search(r'\(([.\d]*)\)', course_title)[1]
+    department = re.search(r'^(\w+)[\s-]{1,2}[\d\w]+.*\s-', course_title)
+    if department:
+        department = department[1]
+    else:
+        department = ''
+    number = re.search(r'[\s-]{1,2}([\d\w]+.*)\s-', course_title)
+    if number:
+        number = number[1]
+    else:
+        number = ''
+    name = re.search(r'-\s(.*)\s\(', course_title)
+    if name:
+        name = name[1]
+    else:
+        name = ''
+    units = re.search(r'\(([.\d]*)\)', course_title)
+    if units:
+        units = units[1]
+    else:
+        units = ''
     return [department, number, name, units]
 
 
@@ -112,7 +128,10 @@ def extractArticulationAgreement(pdf):
     lines = raw['content'].splitlines()
     lines = [l.replace('\u200b', '') for l in lines if l]
     courses = collapseLines(lines)
-    school_to = [l for l in lines if 'To: ' in l][-1]
+    school_to = [l for l in lines if 'To: ' in l]
+    if not school_to:
+        return None
+    school_to = school_to[-1]
     school_to_year = lines[lines.index(school_to)+1][:9]
     school_to = school_to[4:]
     school_from = [l for l in lines if 'From: ' in l][-1]
@@ -143,9 +162,13 @@ _, _, files = next(os.walk(pdf_dir))
 #a = extractArticulationAgreement(pdf_dir+[f for f in files if 'VENTURA' in f][0])
 df = []
 for i, f in enumerate(files):
-    print(i)
+    print(f'{i} / {len(files)}')
+    print(f)
     if f[-4:]=='.pdf':
-        df.append(extractArticulationAgreement(pdf_dir+f))
+        try:
+            df.append(extractArticulationAgreement(pdf_dir+f))
+        except Exception as e:
+            print(e)
 df = pd.concat(df)
 df = df.drop_duplicates()
 df.to_csv("all.csv")

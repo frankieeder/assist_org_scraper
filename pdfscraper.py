@@ -56,62 +56,137 @@ def getFormOptions(form_title, option_filter):
         opts = filterOptions(opts, option_filter)
     return opts
 
-def findPDFs(
-        academic_year=['2019-2020'],
-        from_school=[''],
-        to_school=['To: University of California, Berkeley'],
-        department=['Physics']
-):
+def findPDFs2(academic_year=[''], from_school=[''], to_school=[''], department=['']):
+    driver.get('http://assist.org')
+    driver.implicitly_wait(5)
+
+    academic_years, from_schools, agreements = pdfFinder(academic_year, from_school, to_school, department, download=False)
+    for y, yr in enumerate(academic_years):
+        for s, schl in enumerate(from_schools):
+            driver.get('http://assist.org')
+            driver.implicitly_wait(5)
+            for a, agreement in enumerate(agreements):
+                r = pdfFinder(academic_year, from_school, to_school, department, y, s, a)
+                if r:
+                    academic_years, from_schools, agreements, viewAgreementsButton, departments, dlAgreementsButton = r
+                else:
+                    continue
+
+
+
+def rescrapeObjects(academic_year, from_school, to_school, department, y, s, a, download):
+    academic_years = getFormOptions('academicYear', academic_year)
+    academic_years[y].click()
+
+    from_schools = getFormOptions('fromInstitution', from_school)
+    from_schools[s].click()
+
+    agreements = getFormOptions('agreement', to_school)
+    agreements[a].click()
+
+    if not download:
+        return academic_years, from_schools, agreements
+
+    viewAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'View Agreements')]")
+    viewAgreementsButton.click()
+
+    departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
+    departments = filterOptions(departments, department)
+    for d in departments:
+        d.click()
+
+        dlAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'Download Agreement')]")
+        dlAgreementsButton.click()
+    return academic_years, from_schools, agreements, viewAgreementsButton, departments, dlAgreementsButton
+
+
+def pdfFinder(academic_year, from_school, to_school, department, y=0, s=0, a=0, download=True):
+    MAX_ITERS = 5
+    c = 0
+    objs = None
+    while c < MAX_ITERS:
+        try:
+            objs = rescrapeObjects(academic_year, from_school, to_school, department, y, s, a, download)
+            break
+        except Exception as e:
+            print(e)
+            print(f"Retrying... (attempt {c})")
+        c += 1
+    return objs
+
+def findPDFs(academic_year=[''], from_school=[''], to_school=[''], department=['']):
     driver.get('http://assist.org')
     driver.implicitly_wait(5)
 
     # Set Academic Year
     academic_years = getFormOptions('academicYear', academic_year)
-    for y in range(len(academic_years)):
-        academic_years = getFormOptions('academicYear', academic_year)
-        year = academic_years[y]
-        year.click()
-        #driver.implicitly_wait(0.5)
+    y = 0
+    while y < len(academic_years):
+        try:
+            academic_years = getFormOptions('academicYear', academic_year)
+            year = academic_years[y]
+            year.click()
+            #driver.implicitly_wait(0.5)
 
-        # Get From Schools
-        from_schools = getFormOptions('fromInstitution', from_school)
-        for s in range(140, len(from_schools)):
+            # Get From Schools
             from_schools = getFormOptions('fromInstitution', from_school)
-            school = from_schools[s]
-            school.click()
-            #driver.implicitly_wait(10)
-
-            # Set To School
-            agreements = getFormOptions('agreement', to_school)
-            for a in range(len(agreements)):
-                agreements = getFormOptions('agreement', to_school)
-                agreement = agreements[a]
-                agreement.click()
-                #driver.implicitly_wait(0.5)
-
-                # View Agreements
-                viewAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'View Agreements')]")
-                viewAgreementsButton.click()
-                #driver.implicitly_wait(10)
-
-                # Get Departments
-                departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
+            s = 0
+            while s < len(from_schools):
                 try:
-                    departments = filterOptions(departments, department)
-                except StaleElementReferenceException:
-                    departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
-                    departments = filterOptions(departments, department)
-                for d in departments:
-                    d.click()
-                    #driver.implicitly_wait(0.5)
+                    from_schools = getFormOptions('fromInstitution', from_school)
+                    school = from_schools[s]
+                    school.click()
+                    #driver.implicitly_wait(10)
 
-                    dlAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'Download Agreement')]")
-                    dlAgreementsButton.click()
-                    #driver.implicitly_wait(0.5)
+                    # Set To School
+                    agreements = getFormOptions('agreement', to_school)
+                    a = 0
+                    while a < (len(agreements)):
+                        try:
+                            agreements = getFormOptions('agreement', to_school)
+                            agreement = agreements[a]
+                            agreement.click()
+                            #driver.implicitly_wait(0.5)
+
+                            # View Agreements
+                            viewAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'View Agreements')]")
+                            viewAgreementsButton.click()
+                            #driver.implicitly_wait(10)
+
+                            # Get Departments
+                            departments = driver.find_elements_by_xpath("//div[contains(@class, 'viewByRowColText')]")
+                            departments = filterOptions(departments, department)
+                            di = 0
+                            while di < len(departments):
+                                try:
+                                    d = departments[di]
+                                    d.click()
+                                    #driver.implicitly_wait(0.5)
+
+                                    dlAgreementsButton = driver.find_element_by_xpath("//button[contains(text(), 'Download Agreement')]")
+                                    dlAgreementsButton.click()
+                                    di += 1
+                                except Exception as e:
+                                    print(e)
+                                    continue
+                                #driver.implicitly_wait(0.5)
+                            a += 1
+                        except Exception as e:
+                            print(e)
+                            continue
+                    s+=1
+                except Exception as e:
+                    print(e)
+                    continue
+            y += 1
+        except Exception as e:
+            print(e)
+            continue
 
 if not osp.isdir('./pdfs/'):
     os.mkdir('./pdfs/')
 
-findPDFs()
-
-x=2
+findPDFs2(
+    academic_year=['2019-2020'],
+    to_school=['To: University of California, Berkeley']
+)
